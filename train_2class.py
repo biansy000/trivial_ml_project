@@ -6,14 +6,17 @@ import sys
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import optim
 from tqdm import tqdm
 
-from eval import eval_net
-from unet import UNet
+from unet import UNet, UNet_2div
+from utils.metrics import *
+from PIL import Image
 
 from torch.utils.tensorboard import SummaryWriter
-from utils.dataset import BasicDataset
+# from utils.dataset import BasicDataset\
+from utils.custom_dataset import CustomDataset
 from torch.utils.data import DataLoader, random_split
 
 dir_img = 'data/imgs/'
@@ -30,12 +33,11 @@ def train_net(net,
               save_cp=True,
               img_scale=0.5):
 
-    dataset = BasicDataset(dir_img, dir_mask, img_scale)
-    n_val = int(len(dataset) * val_percent)
-    n_train = len(dataset) - n_val
-    train, val = random_split(dataset, [n_train, n_val])
-    train_loader = DataLoader(train, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
-    val_loader = DataLoader(val, batch_size=batch_size, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
+    trainset = CustomDataset()
+    testset = CustomDataset(is_train=False, data_augment=False)
+    
+    train_loader = DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=8, pin_memory=True)
+    val_loader = DataLoader(testset, batch_size=1, shuffle=False, num_workers=8, pin_memory=True, drop_last=True)
 
     writer = SummaryWriter(comment=f'LR_{lr}_BS_{batch_size}_SCALE_{img_scale}')
     global_step = 0
@@ -44,38 +46,37 @@ def train_net(net,
         Epochs:          {epochs}
         Batch size:      {batch_size}
         Learning rate:   {lr}
-        Training size:   {n_train}
-        Validation size: {n_val}
         Checkpoints:     {save_cp}
         Device:          {device.type}
         Images scaling:  {img_scale}
     ''')
 
     optimizer = optim.RMSprop(net.parameters(), lr=lr, weight_decay=1e-8, momentum=0.9)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min' if net.n_classes > 1 else 'max', patience=2)
-    if net.n_classes > 1:
-        criterion = nn.CrossEntropyLoss()
-    else:
-        criterion = nn.BCEWithLogitsLoss()
+    # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min' if net.n_classes > 1 else 'max', patience=2)
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[40], gamma=0.1)
+    criterion = nn.CrossEntropyLoss()
 
+    best_acc = 0
+    best_iou = 0
+
+    IoU = AverageMeter()
+    Acc = AverageMeter()
     for epoch in range(epochs):
         net.train()
 
         epoch_loss = 0
-        with tqdm(total=n_train, desc=f'Epoch {epoch + 1}/{epochs}', unit='img') as pbar:
-            for batch in train_loader:
-                imgs = batch['image']
-                true_masks = batch['mask']
-                assert imgs.shape[1] == net.n_channels, \
-                    f'Network has been defined with {net.n_channels} input channels, ' \
-                    f'but loaded images have {imgs.shape[1]} channels. Please check that ' \
-                    'the images are loaded correctly.'
-
+        with tqdm(total=25, desc=f'Epoch {epoch + 1}/{epochs}', unit='img') as pbar:
+            for imgs, labels in train_loader:
+                
                 imgs = imgs.to(device=device, dtype=torch.float32)
-                mask_type = torch.float32 if net.n_classes == 1 else torch.long
-                true_masks = true_masks.to(device=device, dtype=mask_type)
+                true_masks = labels.to(device=device)
 
                 masks_pred = net(imgs)
+                s = masks_pred.shape
+                masks_pred = masks_pred.reshape(s[0], s[1], -1).transpose(1, 2).reshape(-1, 2)
+                true_masks = true_masks.long().reshape(-1)
+                assert torch.logical_or(true_masks == 0, true_masks == 1).all()
+                # masks_pred = torch.sigmoid(masks_pred)
                 loss = criterion(masks_pred, true_masks)
                 epoch_loss += loss.item()
                 writer.add_scalar('Loss/train', loss.item(), global_step)
@@ -84,31 +85,25 @@ def train_net(net,
 
                 optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_value_(net.parameters(), 0.1)
+                nn.utils.clip_grad_value_(net.parameters(), 0.2)
                 optimizer.step()
+                
+                positive_pred = F.softmax(masks_pred, dim=1)[:, 1] # (Batch*size) * 2
+                iou, size = calc_IoU(positive_pred, true_masks)
+                IoU.update(iou, size)
+                acc, size = calc_Acc(positive_pred, true_masks)
+                Acc.update(acc, size)
 
                 pbar.update(imgs.shape[0])
                 global_step += 1
-                if global_step % (n_train // (10 * batch_size)) == 0:
-                    for tag, value in net.named_parameters():
-                        tag = tag.replace('.', '/')
-                        writer.add_histogram('weights/' + tag, value.data.cpu().numpy(), global_step)
-                        writer.add_histogram('grads/' + tag, value.grad.data.cpu().numpy(), global_step)
-                    val_score = eval_net(net, val_loader, device)
-                    scheduler.step(val_score)
-                    writer.add_scalar('learning_rate', optimizer.param_groups[0]['lr'], global_step)
 
-                    if net.n_classes > 1:
-                        logging.info('Validation cross entropy: {}'.format(val_score))
-                        writer.add_scalar('Loss/test', val_score, global_step)
-                    else:
-                        logging.info('Validation Dice Coeff: {}'.format(val_score))
-                        writer.add_scalar('Dice/test', val_score, global_step)
+        lr_scheduler.step()
+        print('IoU in train set', IoU.avg, 'Acc in train set', Acc.avg)
+        tmp_iou, tmp_acc = valid(net, device, val_loader)
 
-                    writer.add_images('images', imgs, global_step)
-                    if net.n_classes == 1:
-                        writer.add_images('masks/true', true_masks, global_step)
-                        writer.add_images('masks/pred', torch.sigmoid(masks_pred) > 0.5, global_step)
+        if best_iou < tmp_iou:
+            best_iou = tmp_iou
+            best_acc = tmp_acc
 
         if save_cp:
             try:
@@ -120,15 +115,50 @@ def train_net(net,
                        dir_checkpoint + f'CP_epoch{epoch + 1}.pth')
             logging.info(f'Checkpoint {epoch + 1} saved !')
 
+    print(f'Best result in Test set: Iou: {best_iou}, Acc: {best_acc}')
     writer.close()
+
+
+def valid(net, device, loader):
+    """Evaluation without the densecrf with the dice coefficient"""
+    net.eval()
+    mask_type = torch.float32 if net.n_classes == 1 else torch.long
+    n_val = len(loader)  # the number of batch
+
+    IoU = AverageMeter()
+    Acc = AverageMeter()
+
+    with tqdm(total=n_val, desc='Validation round', unit='batch', leave=False) as pbar:
+        for i, (imgs, labels) in enumerate(loader):
+            imgs = imgs.to(device=device, dtype=torch.float32)
+            true_masks = labels.to(device=device)
+
+            with torch.no_grad():
+                masks_pred = net(imgs)
+                s = masks_pred.shape
+                masks_pred = masks_pred.reshape(s[0], s[1], -1).transpose(1, 2).reshape(-1, 2)
+                true_masks = true_masks.reshape(-1)
+                positive_pred = F.softmax(masks_pred, dim=1)[:, 1] # (Batch*size) * 2
+            
+            draw_label = positive_pred.reshape(s[-1], s[-2]).detach().cpu().numpy()
+            draw_label = Image.fromarray((draw_label * 255).astype(np.uint8))
+            draw_label.save(f'pred_{i}.png')
+
+            iou, size = calc_IoU(positive_pred, true_masks)
+            IoU.update(iou, size)
+            acc, size = calc_Acc(positive_pred, true_masks)
+            Acc.update(acc, size)
+
+    print('IoU in valid set', IoU.avg, 'Acc in valid set', Acc.avg)
+    return IoU.avg, Acc.avg
 
 
 def get_args():
     parser = argparse.ArgumentParser(description='Train the UNet on images and target masks',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-e', '--epochs', metavar='E', type=int, default=5,
+    parser.add_argument('-e', '--epochs', metavar='E', type=int, default=50,
                         help='Number of epochs', dest='epochs')
-    parser.add_argument('-b', '--batch-size', metavar='B', type=int, nargs='?', default=1,
+    parser.add_argument('-b', '--batch-size', metavar='B', type=int, nargs='?', default=5,
                         help='Batch size', dest='batchsize')
     parser.add_argument('-l', '--learning-rate', metavar='LR', type=float, nargs='?', default=0.0001,
                         help='Learning rate', dest='lr')
@@ -154,7 +184,13 @@ if __name__ == '__main__':
     #   - For 1 class and background, use n_classes=1
     #   - For 2 classes, use n_classes=1
     #   - For N > 2 classes, use n_classes=N
-    net = UNet(n_channels=3, n_classes=1, bilinear=True)
+
+    # net = UNet(n_channels=3, n_classes=2, bilinear=True)
+    net = UNet_2div(n_channels=3, n_classes=2, bilinear=True)
+    # net = torch.hub.load('milesial/Pytorch-UNet', 'unet_carvana')
+    # path = 'pretrained/unet_carvana_scale1_epoch5.pth'
+    # net.load_state_dict(torch.load(path))
+    
     logging.info(f'Network:\n'
                  f'\t{net.n_channels} input channels\n'
                  f'\t{net.n_classes} output channels (classes)\n'

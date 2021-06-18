@@ -6,3 +6,6 @@ checkpoints/
 *.jpg
 SUBMISSION*
 venv/
+vis/*
+*.png
+try.py
