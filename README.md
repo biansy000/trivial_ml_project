@@ -28,6 +28,9 @@ python train_plusplus.py
 python train_hrnet.py
 ```
 
+<!-- ### Code comment
+We think that the original repo is quite easy to understand for a well-qualiified student who is interested in AI, thus forgive us for not too much comment in the code. -->
+
 
 ### Some other words
 The repo is originally forked from [Pytorch-Unet](https://github.com/milesial/Pytorch-UNet), but we have changed most part of it. 

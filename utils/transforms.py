@@ -32,7 +32,6 @@ def read_img(idx, is_train=True):
 
 
 def read_data(idx, target_size=(512, 512), is_train=True, data_augment=True):
-    #img, raw_labels = read_raw(idx)
     img, raw_label = read_img(idx, is_train=is_train)
 
     inp_w = target_size[1]
@@ -40,7 +39,6 @@ def read_data(idx, target_size=(512, 512), is_train=True, data_augment=True):
 
     if (not is_train) and idx == 0:
         raw_label = raw_label.transpose(Image.ROTATE_180)
-        # img1 = Image.fromarray(img.astype(np.uint8))
         raw_label.save('vis/0.png')
 
     if not data_augment:
@@ -51,14 +49,14 @@ def read_data(idx, target_size=(512, 512), is_train=True, data_augment=True):
         trans = get_affine_transform(center, scale, r, [inp_w, inp_h])
     else:
         if random.random() < 0.5:
+            # FLIP_LEFT_RIGHT
             img = img.transpose(Image.FLIP_LEFT_RIGHT)
             raw_label = raw_label.transpose(Image.FLIP_LEFT_RIGHT)
 
         if random.random() < 0.5:
+            # FLIP_TOP_BOTTOM
             img = img.transpose(Image.FLIP_TOP_BOTTOM)
             raw_label = raw_label.transpose(Image.FLIP_TOP_BOTTOM)
-        
-        # img, raw_label = PIL_shift_img(img, raw_label)
 
         img = np.array(img).astype(np.float32)
         raw_label = 255 - np.array(raw_label).astype(np.float32)
@@ -70,9 +68,10 @@ def read_data(idx, target_size=(512, 512), is_train=True, data_augment=True):
 
         center, scale = box_to_center_scale(0, 0, img.shape[1], img.shape[0], aspect_ratio=inp_w/inp_h)
 
+        # scale and rotation
         sf = 0.15
         rf = 15
-        r = np.clip(np.random.randn() * rf, -rf * 2, rf * 2) if random.random() <= 0.6 else 0
+        r = np.clip(np.random.randn() * rf, -rf * 2, rf * 2) if random.random() <= 0.5 else 0
         scale = scale * np.clip(np.random.randn() * sf + 1, 1 - sf, 1 + sf)
         
         trans = get_affine_transform(center, scale, r, [inp_w, inp_h])
@@ -84,20 +83,17 @@ def read_data(idx, target_size=(512, 512), is_train=True, data_augment=True):
     img = cv2.warpAffine(img, trans, (int(inp_w), int(inp_h)), flags=cv2.INTER_LINEAR)
     label = cv2.warpAffine(raw_label, trans, (int(inp_w), int(inp_h)), flags=cv2.INTER_NEAREST)
 
-    if (is_train) and idx == 0:
-        img1 = Image.fromarray(img.astype(np.uint8))
-        img1.save('vis/train_try_img.png')
-        img2 = Image.fromarray((label).astype(np.uint8))
-        img2.save('vis/train_try_label.png')
+    # if want to visualize the result of data aug, you may uncomment following codes
+    # if (is_train) and idx == 0:
+    #     img1 = Image.fromarray(img.astype(np.uint8))
+    #     img1.save('vis/train_try_img.png')
+    #     img2 = Image.fromarray((label).astype(np.uint8))
+    #     img2.save('vis/train_try_label.png')
 
-    # print((img / 255).mean(), (img / 255).std())
     img = img / 255 - 0.45
     img = img / 0.2
 
     label = label / 255
-    # print(label)
-    # assert np.logical_or(label==0 ,label==1).all(), np.unique(label)
-    # print(np.unique(label))
     label[label>0.5] = 1
     label[label<=0.5] = 0
 
@@ -128,12 +124,17 @@ def get_affine_transform(center,
                          output_size,
                          shift=np.array([0, 0], dtype=np.float32),
                          inv=0):
+    """
+    get the affine transformation for scaling, ratation and shift
+    use the coordinate of three points to get the affine tranform: 
+      1. point a: the center point , 2. point b: the center point on the left side of the original figure
+          3. the point c, which satisfies that (c-a) is perpendicular to (b-a)
+    """
     if not isinstance(scale, np.ndarray) and not isinstance(scale, list):
         scale = np.array([scale, scale])
 
     scale_tmp = scale
     src_w = scale_tmp[0]
-    #src_h = scale_tmp[1]
     dst_w = output_size[0]
     dst_h = output_size[1]
 
@@ -166,6 +167,7 @@ def affine_transform(pt, t):
 
 
 def box_to_center_scale(x, y, w, h, aspect_ratio=1.0):
+    """size format from x,y,w,h -> center, scale"""
     center = np.zeros((2), dtype=np.float32)
     center[0] = x + w * 0.5
     center[1] = y + h * 0.5
@@ -179,6 +181,7 @@ def box_to_center_scale(x, y, w, h, aspect_ratio=1.0):
 
 
 def PIL_shift_img(img, raw_label):
+    """shift the figure using functions provided by PIL, in fact not used in the final version"""
     a = 1
     b = 0
     c = random.random() * 20 - 10
@@ -189,10 +192,4 @@ def PIL_shift_img(img, raw_label):
     raw_label = raw_label.transform(raw_label.size, Image.AFFINE, (a, b, c, d, e, f))
     return img, raw_label
 
-
-if __name__ == '__main__':
-    img, label = read_data(1)
-    # # print(label/255)
-    # print(np.unique(label))
-    # assert np.logical_or((label/255 == 1), (label/255 == 0)).all()
 

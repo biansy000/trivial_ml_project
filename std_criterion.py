@@ -3,8 +3,15 @@ import numpy as np
 import copy
 
 def V_std(pred, gt, reverse=True):
-    # pred, gt are both numpy arrays, both of which predicts edges as "1"
+    """
+    It is the implementation of criterions used for our project, namely v_rand and v_info
+    Details can be refered from https://www.frontiersin.org/articles/10.3389/fnana.2015.00142/full
+
+    Input: pred, gt => both numpy arrays, both of which predicts edges as "1"
+    Return: v_info, v_rand => 2 scalar
+    """
     if reverse:
+        # reverse means that we assume the "1"s in the figure as edge instead of cell contents
         pred_label = (pred < 0.5).astype(np.uint8)
         gt_label = (gt < 0.5).astype(np.uint8)
     else:

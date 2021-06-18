@@ -21,6 +21,7 @@ class AverageMeter(object):
 
 
 def calc_IoU(pred, gt):
+    # calculate intersection over union
     size = pred.size
 
     intersect = np.logical_and((pred > 0.5), (gt > 0.5))
@@ -30,6 +31,7 @@ def calc_IoU(pred, gt):
 
 
 def calc_Acc(pred, gt):
+    # calculate accuracy
     size = pred.size
 
     true_pos = np.logical_and((pred > 0.5), (gt > 0.5))
@@ -41,7 +43,7 @@ def calc_Acc(pred, gt):
 
 
 def weighted_BCE_loss(input, target, positive_weight=2): 
-    # input = input * weights
+    # weighted BCE loss, positive samples can be given larger weights for more stable training
     input = torch.clamp(input, min=1e-12, max=1-1e-12)
     target = target.expand(input.shape)
 
