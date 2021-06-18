@@ -23,7 +23,7 @@ def V_std(pred, gt, reverse=True):
 
     p = np.zeros((pred_num+1, gt_num+1))
     for i in range(pred_num+1): 
-        # we should allow for the situation where gt=0 and pred<>0 (not take into account in calc)
+        # we should allow for the situation where gt=0 and pred<>0 (not take into account in calculation)
         # and treat the situation where gt<>0 and pred=0 as false
         tmp_mask = (pred_out==i)
         for j in range(1, gt_num+1):

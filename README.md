@@ -2,6 +2,8 @@
 
 
 ## Brief introduction
+In the project, we need to find the boundary between different cells. The data set consists of 30 samples, 25 for train and 5 for test given by the teacher. No pretrain or extra data is allowed. 
+
 In the repo, we implement three methods, namely:
 * UNet
 * UNet++
