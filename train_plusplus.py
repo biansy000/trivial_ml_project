@@ -175,11 +175,11 @@ def valid(net, device, loader, deep_supervision):
             with torch.no_grad():
                 mask_pred = net(imgs)
                 
-                mask_pred = torch.stack(mask_pred, dim=1) # Batch x Super_dim x 1 x height x width
+                mask_pred = torch.stack(mask_pred, dim=1) # Batch x Supervise_num x 1 x height x width
                 super_dim = mask_pred.shape[1]
                 mask_pred = mask_pred.reshape(-1, 1, mask_pred.shape[-2], mask_pred.shape[-1])
                 mask_pred = F.interpolate(mask_pred, size=target_size, mode='bilinear', align_corners=True)
-                # (Batch * Super_dim) x 1 x height x width
+                # (Batch * Supervise_num) x 1 x height x width
                 mask_pred = torch.sigmoid(mask_pred)
 
                 true_masks = true_masks.unsqueeze(1) # Batch x 1 x height x width
@@ -212,7 +212,7 @@ def get_args():
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-e', '--epochs', metavar='E', type=int, default=300,
                         help='Number of epochs', dest='epochs')
-    parser.add_argument('-b', '--batch-size', metavar='B', type=int, nargs='?', default=4,
+    parser.add_argument('-b', '--batch-size', metavar='B', type=int, nargs='?', default=5,
                         help='Batch size', dest='batchsize')
     parser.add_argument('-l', '--learning-rate', metavar='LR', type=float, nargs='?', default=0.0005,
                         help='Learning rate', dest='lr')

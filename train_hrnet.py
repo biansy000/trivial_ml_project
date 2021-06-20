@@ -164,7 +164,6 @@ def valid(net, device, loader):
     """Evaluation without the densecrf with the dice coefficient"""
     target_size = (256, 256)
     net.eval()
-    mask_type = torch.float32
     n_val = len(loader)  # the number of batch
 
     IoU = AverageMeter()
@@ -179,12 +178,9 @@ def valid(net, device, loader):
 
             with torch.no_grad():
                 mask_pred = net(imgs)
-                # target_size = (labels.shape[1], labels.shape[2])
-                # mask_pred = F.interpolate(mask_pred, size=target_size, mode='bilinear', align_corners=True)
                 
                 true_masks = true_masks.unsqueeze(1)
                 true_masks = F.interpolate(true_masks, size=target_size, mode='nearest')
-                # mask_pred = F.interpolate(mask_pred, size=target_size, mode='bilinear', align_corners=True)
                 mask_pred = torch.sigmoid(mask_pred)
                 
             
@@ -243,15 +239,6 @@ if __name__ == '__main__':
 
     # net = UNet(n_channels=3, n_classes=1, bilinear=True)
     net = _hrnet('hrnet18')
-    
-    # net = torch.hub.load('milesial/Pytorch-UNet', 'unet_carvana')
-    # path = 'pretrained/unet_carvana_scale1_epoch5.pth'
-    # net.load_state_dict(torch.load(path))
-    
-    # logging.info(f'Network:\n'
-    #              f'\t{net.n_channels} input channels\n'
-    #              f'\t{net.n_classes} output channels (classes)\n'
-    #              f'\t{"Bilinear" if net.bilinear else "Transposed conv"} upscaling')
 
     if args.load:
         net.load_state_dict(

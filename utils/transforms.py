@@ -37,9 +37,10 @@ def read_data(idx, target_size=(512, 512), is_train=True, data_augment=True):
     inp_w = target_size[1]
     inp_h = target_size[0]
 
-    if (not is_train) and idx == 0:
-        raw_label = raw_label.transpose(Image.ROTATE_180)
-        raw_label.save('vis/0.png')
+    # check the first label of test set
+    # if (not is_train) and idx == 0:
+    #     raw_label = raw_label.transpose(Image.ROTATE_180)
+    #     raw_label.save('vis/0.png')
 
     if not data_augment:
         img = np.array(img).astype(np.float32)
@@ -90,6 +91,7 @@ def read_data(idx, target_size=(512, 512), is_train=True, data_augment=True):
     #     img2 = Image.fromarray((label).astype(np.uint8))
     #     img2.save('vis/train_try_label.png')
 
+    # normalize
     img = img / 255 - 0.45
     img = img / 0.2
 

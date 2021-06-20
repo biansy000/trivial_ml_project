@@ -51,7 +51,7 @@ def weighted_BCE_loss(input, target, positive_weight=2):
     weights[target > 0.5] = positive_weight
 
     out = nn.functional.binary_cross_entropy(input, target, reduction='none')
-    # assert out.shape == weights.shape, f'{out.shape}, {weights.shape}'
+    assert out.shape == weights.shape, f'{out.shape}, {weights.shape}'
     out = out * weights
     
     return out.mean()
